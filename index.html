@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InsightDocket — Multimodal RAG PDF QA</title>
+
+<!-- Bootstrap 5 -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<!-- Bootstrap Icons -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;1,14..32,300&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg-base:       #0a0f1e;
+    --bg-surface:    #111a2e;
+    --bg-raised:     #141e35;
+    --bg-hover:      #1b2740;
+    --border:        #1e2d4a;
+    --border-light:  #2c3e63;
+    --accent:        #6366f1;
+    --accent-lt:     #818cf8;
+    --accent-dim:    rgba(99,102,241,0.12);
+    --accent-glow:   rgba(99,102,241,0.3);
+    --cyan:          #22d3ee;
+    --cyan-dim:      rgba(34,211,238,0.12);
+    --text-primary:  #f8fafc;
+    --text-secondary:#94a3b8;
+    --text-muted:    #55607a;
+    --green:         #10b981;
+    --green-dim:     rgba(16,185,129,0.12);
+    --red:           #f43f5e;
+    --red-dim:       rgba(244,63,94,0.12);
+    --amber:         #f59e0b;
+    --amber-dim:     rgba(245,158,11,0.12);
+    --radius:        12px;
+    --radius-lg:     18px;
+    --shadow-lg:     0 8px 48px rgba(0,0,0,0.65);
+    --font-display:  'Space Grotesk', sans-serif;
+    --font-body:     'Inter', sans-serif;
+    --font-mono:     'Courier New', monospace;
+    --transition:    all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 900px;
+    height: 420px;
+    background: radial-gradient(ellipse, rgba(99,102,241,0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app-wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  .site-header { padding: 28px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 28px; }
+  .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+  .brand-icon {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg, var(--accent), #4338ca);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: #fff; font-weight: 800;
+    box-shadow: 0 0 20px var(--accent-glow);
+    flex-shrink: 0;
+    font-family: var(--font-display);
+  }
+  .brand-text { font-family: var(--font-display); font-size: 21px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; }
+  .brand-text span { color: var(--accent-lt); }
+  .brand-sub { font-size: 11.5px; color: var(--text-muted); font-weight: 500; letter-spacing: 0.6px; text-transform: uppercase; }
+
+  .header-status {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-secondary);
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 100px; padding: 6px 14px;
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); transition: var(--transition); }
+  .status-dot.online  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-dot 2s infinite; }
+  .status-dot.offline { background: var(--red); }
+  .status-dot.loading { background: var(--accent); animation: pulse-dot 0.8s infinite; }
+  @keyframes pulse-dot { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+  .config-panel {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 22px;
+    transition: var(--transition);
+  }
+  .config-panel:hover { border-color: var(--border-light); }
+  .config-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .form-control-dark {
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text-primary);
+    font-family: var(--font-body); font-size: 14px; padding: 10px 14px;
+    transition: var(--transition); width: 100%; outline: none;
+  }
+  .form-control-dark:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); background: var(--bg-raised); color: var(--text-primary); }
+  .form-control-dark::placeholder { color: var(--text-muted); }
+  .form-control-dark.key-input { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.5px; }
+
+  .chat-container { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 16px; overflow: hidden; }
+  .chat-history {
+    min-height: 420px; max-height: 520px; overflow-y: auto; padding: 24px;
+    display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth;
+  }
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 60px 20px; text-align: center; gap: 14px; opacity: 0.65;
+  }
+  .empty-icon {
+    width: 64px; height: 64px; background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 18px; display: flex; align-items: center; justify-content: center;
+    font-size: 28px; color: var(--accent-lt);
+  }
+  .empty-title { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text-secondary); }
+  .empty-sub { font-size: 13px; color: var(--text-muted); max-width: 320px; }
+
+  .message { display: flex; gap: 12px; animation: msg-in 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+  @keyframes msg-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .message.user { flex-direction: row-reverse; }
+  .msg-avatar {
+    width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0; margin-top: 2px;
+  }
+  .message.user .msg-avatar { background: var(--accent); color: #fff; font-weight: 700; }
+  .message.bot  .msg-avatar { background: var(--bg-raised); border: 1px solid var(--border); color: var(--cyan); }
+  .msg-body { max-width: 80%; display: flex; flex-direction: column; gap: 6px; }
+  .message.user .msg-body { align-items: flex-end; }
+  .msg-bubble { padding: 12px 16px; border-radius: var(--radius); font-size: 14.5px; line-height: 1.65; word-break: break-word; }
+  .message.user .msg-bubble { background: var(--accent); color: #fff; font-weight: 500; border-bottom-right-radius: 4px; }
+  .message.bot  .msg-bubble { background: var(--bg-raised); border: 1px solid var(--border); color: var(--text-primary); border-bottom-left-radius: 4px; }
+  .msg-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+  .badge-type { font-size: 10.5px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; }
+  .badge-grounded          { background: var(--green-dim);  color: var(--green); }
+  .badge-fallback          { background: var(--amber-dim);  color: var(--amber); }
+  .badge-injection_blocked { background: var(--red-dim);    color: var(--red); }
+  .badge-error             { background: var(--red-dim);    color: var(--red); }
+  .msg-latency { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+  .msg-score   { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+  .grounding-pill { font-size: 10.5px; display: flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+  .grounding-pill.grounded     { background: var(--green-dim); color: var(--green); }
+  .grounding-pill.not-grounded { background: var(--red-dim);   color: var(--red); }
+  .sources-toggle {
+    font-size: 11px; color: var(--accent-lt); cursor: pointer; background: none; border: none;
+    padding: 2px 6px; border-radius: 4px; transition: var(--transition);
+    display: flex; align-items: center; gap: 3px;
+  }
+  .sources-toggle:hover { background: var(--accent-dim); }
+  .sources-list { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-top: 4px; display: none; }
+  .sources-list.open { display: flex; flex-wrap: wrap; gap: 6px; animation: msg-in 0.2s ease; }
+  .source-chip {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px;
+    color: var(--accent-lt); background: var(--accent-dim); border: 1px solid rgba(99,102,241,0.28);
+    border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: var(--transition);
+    font-family: var(--font-mono);
+  }
+  .source-chip:hover { background: rgba(99,102,241,0.22); color: #fff; border-color: var(--accent); }
+  .source-chip i { font-size: 12px; }
+  .typing-indicator {
+    display: flex; align-items: center; gap: 5px; padding: 14px 16px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);
+    border-bottom-left-radius: 4px; width: fit-content;
+  }
+  .typing-dot { width: 7px; height: 7px; background: var(--accent-lt); border-radius: 50%; animation: typing 1.2s infinite; }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typing { 0%,80%,100% { transform: scale(0.7); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+
+  .input-bar { padding: 16px 20px; border-top: 1px solid var(--border); background: var(--bg-base); display: flex; gap: 10px; align-items: flex-end; }
+  .question-input {
+    flex: 1; background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text-primary); font-family: var(--font-body); font-size: 14.5px; padding: 11px 16px;
+    resize: none; min-height: 46px; max-height: 140px; line-height: 1.5; transition: var(--transition); outline: none;
+  }
+  .question-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+  .question-input::placeholder { color: var(--text-muted); }
+  .send-btn {
+    width: 46px; height: 46px; background: var(--accent); border: none; border-radius: var(--radius);
+    color: #fff; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: var(--transition); flex-shrink: 0;
+  }
+  .send-btn:hover:not(:disabled) { background: var(--accent-lt); transform: scale(1.05); box-shadow: 0 0 16px var(--accent-glow); }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .send-btn .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+  @media (max-width: 640px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
+  .metric-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; transition: var(--transition); cursor: default; }
+  .metric-card:hover { border-color: var(--border-light); background: var(--bg-raised); }
+  .metric-val { font-family: var(--font-display); font-size: 25px; font-weight: 800; color: var(--text-primary); line-height: 1; margin-bottom: 4px; }
+  .metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600; }
+  .metric-icon { font-size: 19px; margin-bottom: 10px; }
+
+  .history-panel { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .panel-header {
+    padding: 14px 18px; border-bottom: 1px solid var(--border); font-family: var(--font-display);
+    font-size: 13px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.4px;
+    text-transform: uppercase; display: flex; align-items: center; gap: 8px;
+  }
+  .history-list { max-height: 320px; overflow-y: auto; }
+  .history-item { padding: 12px 18px; border-bottom: 1px solid var(--border); cursor: pointer; transition: var(--transition); display: flex; flex-direction: column; gap: 4px; }
+  .history-item:last-child { border-bottom: none; }
+  .history-item:hover { background: var(--bg-raised); }
+  .history-q { font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-meta { display: flex; align-items: center; gap: 8px; }
+  .history-time { font-size: 11px; color: var(--text-muted); }
+
+  .dropzone {
+    border: 1.5px dashed var(--border-light);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+    padding: 26px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+    margin-bottom: 14px;
+  }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--accent-dim); }
+  .dropzone-icon { font-size: 26px; color: var(--accent-lt); margin-bottom: 8px; }
+  .dropzone-title { font-size: 13.5px; color: var(--text-secondary); font-weight: 600; margin-bottom: 3px; }
+  .dropzone-sub { font-size: 11.5px; color: var(--text-muted); }
+  #pdfFileInput { display: none; }
+
+  .file-chip {
+    display: flex; align-items: center; gap: 10px; background: var(--bg-raised);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px;
+    animation: msg-in 0.25s ease;
+  }
+  .file-chip-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--red-dim); color: var(--red); display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .file-chip-name { font-size: 13px; color: var(--text-primary); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-chip-size { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+  .file-chip-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 15px; padding: 4px; flex-shrink: 0; transition: var(--transition); border-radius: 4px; }
+  .file-chip-remove:hover { color: var(--red); background: var(--red-dim); }
+
+  .ingest-progress-wrap { margin-top: 12px; display: none; flex-direction: column; gap: 8px; }
+  .ingest-progress-wrap.visible { display: flex; animation: msg-in 0.3s ease; }
+  .ingest-progress-bar-track { height: 5px; background: var(--bg-hover); border-radius: 99px; overflow: hidden; }
+  .ingest-progress-bar-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--cyan)); transition: width 0.4s ease; box-shadow: 0 0 8px var(--accent-glow); width: 0%; }
+  .ingest-progress-bar-fill.indeterminate { width: 40%; animation: indeterminate 1.4s ease-in-out infinite; }
+  @keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+  .ingest-status-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+  .ingest-status-text { color: var(--text-secondary); }
+  .ingest-page-count { color: var(--text-muted); font-family: var(--font-mono); }
+
+  .ingest-complete-banner, .ingest-error-banner {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-radius: 8px; font-size: 12px; animation: msg-in 0.3s ease;
+  }
+  .ingest-complete-banner { background: var(--green-dim); border: 1px solid rgba(16,185,129,0.25); color: var(--green); }
+  .ingest-error-banner    { background: var(--red-dim);   border: 1px solid rgba(244,63,94,0.25);   color: var(--red); }
+  .chunk-breakdown-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .chunk-breakdown-chip {
+    font-size: 10.5px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 6px;
+    background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border);
+  }
+
+  .doc-item { padding: 11px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; transition: var(--transition); }
+  .doc-item:last-child { border-bottom: none; }
+  .doc-item:hover { background: var(--bg-raised); }
+  .doc-icon { width: 30px; height: 30px; border-radius: 7px; background: var(--accent-dim); color: var(--accent-lt); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+  .doc-name { font-size: 12.5px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .doc-status { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 5px; flex-shrink: 0; }
+  .doc-status.active     { background: var(--green-dim); color: var(--green); }
+  .doc-status.processing { background: var(--amber-dim); color: var(--amber); }
+  .doc-status.failed     { background: var(--red-dim);   color: var(--red); }
+
+  .code-tabs { display: flex; gap: 2px; padding: 10px 12px 0; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
+  .code-tab {
+    font-size: 12px; font-weight: 600; font-family: var(--font-body); color: var(--text-muted);
+    background: none; border: none; padding: 6px 12px; border-radius: 6px 6px 0 0; cursor: pointer;
+    transition: var(--transition); border-bottom: 2px solid transparent;
+  }
+  .code-tab:hover { color: var(--text-secondary); background: var(--bg-raised); }
+  .code-tab.active { color: var(--accent-lt); border-bottom-color: var(--accent); }
+  .code-snippet-wrap { padding: 0; position: relative; }
+  .code-snippet {
+    display: none; margin: 0; padding: 14px 16px; font-family: var(--font-mono); font-size: 11.5px;
+    line-height: 1.7; color: var(--text-secondary); background: var(--bg-raised); white-space: pre;
+    overflow-x: auto; max-height: 260px;
+  }
+  .code-snippet::-webkit-scrollbar { height: 3px; }
+  .code-snippet.active { display: block; }
+  .code-kw  { color: #c084fc; }
+  .code-str { color: #86efac; }
+  .code-cmt { color: var(--text-muted); font-style: italic; }
+  .copy-snippet-btn {
+    position: absolute; top: 8px; right: 8px; font-size: 11px; background: var(--bg-hover);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); padding: 3px 8px;
+    cursor: pointer; transition: var(--transition); display: flex; align-items: center; gap: 4px; z-index: 2;
+  }
+  .copy-snippet-btn:hover { color: var(--accent-lt); border-color: var(--accent); }
+
+  .explain-chunk { background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; }
+  .explain-chunk-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
+  .explain-rank {
+    width: 26px; height: 26px; border-radius: 7px; background: var(--accent-dim); color: var(--accent-lt);
+    display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12px; font-weight: 700; flex-shrink: 0;
+  }
+  .explain-meta-chip { font-size: 10.5px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 6px; background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border); }
+  .explain-score { font-family: var(--font-mono); font-size: 12px; color: var(--cyan); font-weight: 600; }
+  .explain-preview { font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; }
+  .explain-summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .explain-summary-item { background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; flex: 1; min-width: 120px; }
+  .explain-summary-val { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text-primary); }
+  .explain-summary-lbl { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+  .toast-msg {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px;
+    font-size: 13px; color: var(--text-primary); display: flex; align-items: center; gap: 10px; min-width: 260px;
+    box-shadow: var(--shadow-lg); animation: toast-in 0.3s ease;
+  }
+  .toast-msg.success { border-left: 3px solid var(--green); }
+  .toast-msg.error   { border-left: 3px solid var(--red); }
+  .toast-msg.info    { border-left: 3px solid var(--accent); }
+  @keyframes toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+  .quick-prompts { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg-base); }
+  .quick-btn {
+    font-size: 12px; color: var(--text-secondary); background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 100px; padding: 5px 12px; cursor: pointer; transition: var(--transition); font-family: var(--font-body);
+  }
+  .quick-btn:hover { border-color: var(--accent); color: var(--accent-lt); background: var(--accent-dim); }
+
+  .modal-dark .modal-content { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--text-primary); }
+  .modal-dark .modal-header { border-bottom: 1px solid var(--border); padding: 20px 24px; }
+  .modal-dark .modal-title { font-family: var(--font-display); font-weight: 700; font-size: 18px; }
+  .modal-dark .modal-body { padding: 24px; }
+  .modal-dark .modal-footer { border-top: 1px solid var(--border); padding: 16px 24px; }
+  .modal-dark .btn-close { filter: invert(1); }
+
+  .btn-accent {
+    background: var(--accent); color: #fff; font-weight: 600; border: none; border-radius: var(--radius);
+    padding: 10px 20px; font-family: var(--font-body); font-size: 14px; transition: var(--transition); cursor: pointer;
+  }
+  .btn-accent:hover { background: var(--accent-lt); box-shadow: 0 0 16px var(--accent-glow); }
+  .btn-accent:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: var(--text-secondary); font-weight: 500; border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 20px; font-family: var(--font-body); font-size: 14px;
+    transition: var(--transition); cursor: pointer;
+  }
+  .btn-ghost:hover { border-color: var(--border-light); color: var(--text-primary); background: var(--bg-raised); }
+  .collapse-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 13px; transition: var(--transition); line-height: 1; }
+  .collapse-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
+
+  @media (max-width: 768px) {
+    .site-header { padding: 18px 0 14px; }
+    .chat-history { min-height: 320px; max-height: 420px; padding: 16px; }
+    .brand-text { font-size: 17px; }
+    .header-status span { display: none; }
+  }
+</style>
+</head>
+
+<body>
+<div class="app-wrapper">
+
+  <header class="site-header">
+    <div class="d-flex align-items-center justify-content-between">
+      <a class="brand" href="#">
+        <div class="brand-icon">ID</div>
+        <div>
+          <div class="brand-text">Insight<span>Docket</span></div>
+          <div class="brand-sub">Multimodal RAG PDF QA</div>
+        </div>
+      </a>
+      <div class="d-flex align-items-center gap-2">
+        <div class="header-status" id="statusBadge">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="statusText">Connecting…</span>
+        </div>
+        <button class="btn-ghost d-flex align-items-center gap-2" style="padding:8px 14px; font-size:13px;"
+                data-bs-toggle="modal" data-bs-target="#settingsModal">
+          <i class="bi bi-gear"></i>
+          <span class="d-none d-sm-inline">Settings</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="metrics-grid" id="metricsGrid">
+    <div class="metric-card">
+      <div class="metric-icon" style="color:var(--accent-lt)"><i class="bi bi-lightning-charge-fill"></i></div>
+      <div class="metric-val" id="mTotalReqs">—</div>
+      <div class="metric-label">Total Queries</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon" style="color:var(--cyan)"><i class="bi bi-speedometer2"></i></div>
+      <div class="metric-val" id="mAvgLatency">—</div>
+      <div class="metric-label">Avg Latency</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon" style="color:var(--green)"><i class="bi bi-diagram-3-fill"></i></div>
+      <div class="metric-val" id="mGroundedRate">—</div>
+      <div class="metric-label">Grounded Rate</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon" style="color:var(--red)"><i class="bi bi-shield-check"></i></div>
+      <div class="metric-val" id="mInjections">—</div>
+      <div class="metric-label">Blocked</div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+
+    <div class="col-lg-8">
+
+      <div class="config-panel">
+        <div class="row g-3 align-items-end">
+          <div class="col-sm-8">
+            <div class="config-label"><i class="bi bi-key-fill"></i> X-API-Key</div>
+            <input type="password" class="form-control-dark key-input" id="apiKeyInput"
+                   placeholder="Paste your API key (from seed_api_key.py)…" autocomplete="off"
+                   oninput="refreshCodeSnippets()">
+          </div>
+          <div class="col-sm-4">
+            <div class="config-label"><i class="bi bi-server"></i> Endpoint</div>
+            <input type="text" class="form-control-dark" id="endpointInput" value="http://localhost:8000"
+                   placeholder="http://localhost:8000" oninput="refreshCodeSnippets()">
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-container">
+        <div class="chat-history" id="chatHistory">
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon"><i class="bi bi-file-earmark-text"></i></div>
+            <div class="empty-title">Ask your documents</div>
+            <div class="empty-sub">Upload a PDF on the right, then ask questions — answers are grounded with page-level citations</div>
+          </div>
+        </div>
+
+        <div class="quick-prompts" id="quickPrompts">
+          <button class="quick-btn" onclick="useQuick(this)">What is the total revenue?</button>
+          <button class="quick-btn" onclick="useQuick(this)">Summarise the key risk factors</button>
+          <button class="quick-btn" onclick="useQuick(this)">What tables are in this document?</button>
+          <button class="quick-btn" onclick="useQuick(this)">List the board members</button>
+        </div>
+
+        <div class="input-bar">
+          <textarea class="question-input" id="questionInput"
+                    placeholder="Ask a question about your ingested PDFs…" rows="1"></textarea>
+          <button class="send-btn" id="sendBtn" onclick="sendQuestion()" title="Send (Enter)">
+            <i class="bi bi-arrow-up-short" style="font-size:22px;"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mt-2" style="font-size:12px; color:var(--text-muted); padding:0 4px;">
+        <span>
+          <kbd style="background:var(--bg-raised);border:1px solid var(--border);color:var(--text-secondary);padding:2px 6px;border-radius:4px;font-size:11px;">Enter</kbd> to send &nbsp;·&nbsp;
+          <kbd style="background:var(--bg-raised);border:1px solid var(--border);color:var(--text-secondary);padding:2px 6px;border-radius:4px;font-size:11px;">Shift+Enter</kbd> for newline
+        </span>
+        <span id="charCount" style="font-family:var(--font-mono);">0 / 2000</span>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+
+      <div class="history-panel mb-3">
+        <div class="panel-header">
+          <i class="bi bi-cloud-arrow-up" style="color:var(--accent-lt)"></i>
+          Ingest a PDF
+        </div>
+        <div style="padding:16px;">
+
+          <div class="dropzone" id="dropzone" onclick="document.getElementById('pdfFileInput').click()">
+            <div class="dropzone-icon"><i class="bi bi-file-earmark-pdf"></i></div>
+            <div class="dropzone-title">Drop a PDF here, or click to browse</div>
+            <div class="dropzone-sub">Max 50MB · text, tables &amp; images extracted</div>
+          </div>
+          <input type="file" id="pdfFileInput" accept="application/pdf">
+
+          <div id="fileChipWrap"></div>
+
+          <button class="btn-accent w-100 d-flex align-items-center justify-content-center gap-2"
+                  id="ingestBtn" onclick="triggerIngest()" disabled>
+            <i class="bi bi-upload"></i> Ingest Document
+          </button>
+
+          <div class="ingest-progress-wrap" id="ingestProgressWrap">
+            <div class="ingest-status-row">
+              <span class="ingest-status-text" id="ingestStatusText">Uploading…</span>
+              <span class="ingest-page-count" id="ingestPageCount"></span>
+            </div>
+            <div class="ingest-progress-bar-track">
+              <div class="ingest-progress-bar-fill indeterminate" id="ingestProgressFill"></div>
+            </div>
+          </div>
+
+          <div id="ingestCompleteBanner" style="display:none; margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <div class="history-panel mb-3">
+        <div class="panel-header d-flex justify-content-between align-items-center w-100">
+          <span><i class="bi bi-files" style="color:var(--accent-lt)"></i> &nbsp;Documents</span>
+          <button class="collapse-btn" onclick="fetchDocuments()" title="Refresh">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+        <div id="documentsList">
+          <div style="padding:22px 18px; text-align:center; color:var(--text-muted); font-size:13px;">
+            No documents ingested yet
+          </div>
+        </div>
+      </div>
+
+      <div class="history-panel mb-3">
+        <div class="panel-header d-flex justify-content-between align-items-center w-100">
+          <span><i class="bi bi-clock-history" style="color:var(--accent-lt)"></i> &nbsp;Session History</span>
+          <div class="d-flex align-items-center gap-1">
+            <button onclick="clearHistory()" style="background:none;border:none;color:var(--text-muted);font-size:12px;cursor:pointer;padding:2px 5px;" title="Clear history">
+              <i class="bi bi-trash3"></i>
+            </button>
+            <button class="collapse-btn" id="historyCollapseBtn" onclick="toggleHistoryPanel()" title="Toggle history">
+              <i class="bi bi-chevron-up" id="historyChevron"></i>
+            </button>
+          </div>
+        </div>
+        <div id="historyCollapsible">
+          <div class="history-list" id="historyList">
+            <div style="padding:24px 18px; text-align:center; color:var(--text-muted); font-size:13px;">No questions yet</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="history-panel">
+        <div class="panel-header">
+          <i class="bi bi-code-slash" style="color:var(--accent-lt)"></i>
+          Use /query in Code
+        </div>
+        <div class="code-tabs">
+          <button class="code-tab active" onclick="switchTab(event,'curl')">cURL</button>
+          <button class="code-tab" onclick="switchTab(event,'js')">JavaScript</button>
+          <button class="code-tab" onclick="switchTab(event,'python')">Python</button>
+        </div>
+        <div class="code-snippet-wrap">
+          <button class="copy-snippet-btn" onclick="copyActiveSnippet()" title="Copy to clipboard">
+            <i class="bi bi-copy"></i> Copy
+          </button>
+          <pre class="code-snippet active" id="snippet-curl"></pre>
+          <pre class="code-snippet" id="snippet-js"></pre>
+          <pre class="code-snippet" id="snippet-python"></pre>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="height:40px;"></div>
+
+</div>
+
+<div class="modal fade modal-dark" id="settingsModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-gear-fill me-2" style="color:var(--accent-lt)"></i>Settings</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="config-label"><i class="bi bi-file-earmark"></i> Filter by Document ID (optional)</div>
+        <input type="text" class="form-control-dark mb-3" id="documentIdInput" placeholder="e.g. 42" value="">
+
+        <div class="config-label"><i class="bi bi-shield-check"></i> Confidence Threshold override</div>
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <input type="range" id="thresholdDisplay" min="0" max="1" step="0.01" value="0.35"
+                 style="flex:1; accent-color:var(--accent);">
+          <span id="thresholdVal" style="font-family:var(--font-mono); font-size:13px; color:var(--accent-lt); min-width:36px;">0.35</span>
+        </div>
+
+        <div class="config-label"><i class="bi bi-arrow-clockwise"></i> Auto-refresh Metrics</div>
+        <div class="d-flex align-items-center gap-2">
+          <input type="checkbox" id="autoRefresh" style="accent-color:var(--accent); width:16px;height:16px;" checked>
+          <label for="autoRefresh" style="font-size:14px; color:var(--text-secondary); cursor:pointer;">
+            Refresh health &amp; metrics every 30 seconds
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer gap-2">
+        <button class="btn-ghost" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn-accent" data-bs-dismiss="modal" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade modal-dark" id="explainModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-zoom-in me-2" style="color:var(--cyan)"></i>Retrieval Breakdown</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="explainModalBody" style="max-height:60vh; overflow-y:auto;">
+        <div class="text-center py-4" style="color:var(--text-muted);">
+          <div class="spinner-border" role="status" style="color:var(--accent-lt); width:28px; height:28px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer gap-2">
+        <button class="btn-ghost" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+const state = {
+  sessionHistory: [],
+  isLoading: false,
+  metricsInterval: null,
+  activeTab: 'curl',
+  historyOpen: true,
+  selectedFile: null,
+};
+
+const $ = id => document.getElementById(id);
+
+const chatHistory   = $('chatHistory');
+const questionInput = $('questionInput');
+const sendBtn       = $('sendBtn');
+const emptyState    = $('emptyState');
+const apiKeyInput   = $('apiKeyInput');
+const endpointInput = $('endpointInput');
+const explainModal  = new bootstrap.Modal($('explainModal'));
+
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = JSON.parse(localStorage.getItem('insightdocket_settings') || '{}');
+  if (saved.apiKey)      apiKeyInput.value   = saved.apiKey;
+  if (saved.endpoint)    endpointInput.value = saved.endpoint;
+  if (saved.documentId)  $('documentIdInput').value = saved.documentId;
+  if (saved.threshold != null) {
+    $('thresholdDisplay').value = saved.threshold;
+    $('thresholdVal').textContent = parseFloat(saved.threshold).toFixed(2);
+  }
+  if (saved.historyOpen === false) { state.historyOpen = false; applyHistoryCollapse(false); }
+
+  checkHealth();
+  fetchMetrics();
+  fetchDocuments();
+  refreshCodeSnippets();
+
+  state.metricsInterval = setInterval(() => {
+    if ($('autoRefresh').checked) { checkHealth(); fetchMetrics(); }
+  }, 30000);
+
+  questionInput.addEventListener('input', () => {
+    questionInput.style.height = 'auto';
+    questionInput.style.height = Math.min(questionInput.scrollHeight, 140) + 'px';
+    $('charCount').textContent = `${questionInput.value.length} / 2000`;
+  });
+
+  questionInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!state.isLoading) sendQuestion();
+    }
+  });
+
+  $('thresholdDisplay').addEventListener('input', e => {
+    $('thresholdVal').textContent = parseFloat(e.target.value).toFixed(2);
+  });
+
+  const dz = $('dropzone');
+  const fileInput = $('pdfFileInput');
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
+  });
+
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) {
+      if (file.type !== 'application/pdf') {
+        showToast('Only PDF files are accepted', 'error');
+        return;
+      }
+      setSelectedFile(file);
+    }
+  });
+});
+
+async function checkHealth() {
+  const dot  = $('statusDot');
+  const text = $('statusText');
+  const base = endpointInput.value.trim() || 'http://localhost:8000';
+  dot.className    = 'status-dot loading';
+  text.textContent = 'Checking…';
+  try {
+    const res  = await fetch(`${base}/api/v1/health`, { signal: AbortSignal.timeout(5000) });
+    const data = await res.json();
+    dot.className    = data.status === 'healthy' ? 'status-dot online' : 'status-dot loading';
+    text.textContent = data.status === 'healthy' ? 'Online' : 'Degraded';
+  } catch {
+    dot.className    = 'status-dot offline';
+    text.textContent = 'Offline';
+  }
+}
+
+async function fetchMetrics() {
+  const base = endpointInput.value.trim() || 'http://localhost:8000';
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) return;
+  try {
+    const res  = await fetch(`${base}/api/v1/metrics`, {
+      headers: { 'X-API-Key': apiKey },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const reqTotal = data.requests?.total ?? 0;
+    $('mTotalReqs').textContent  = reqTotal;
+    $('mAvgLatency').textContent = data.latency_ms?.avg_total != null ? `${Math.round(data.latency_ms.avg_total)}ms` : '—';
+
+    const grounded = data.responses?.grounded ?? 0;
+    const fallback = data.responses?.fallback ?? 0;
+    const denom = grounded + fallback;
+    $('mGroundedRate').textContent = denom > 0 ? `${Math.round((grounded / denom) * 100)}%` : '—';
+
+    $('mInjections').textContent = data.responses?.injection_blocked ?? 0;
+  } catch { /* silently fail */ }
+}
+
+async function fetchDocuments() {
+  const base = endpointInput.value.trim() || 'http://localhost:8000';
+  const apiKey = apiKeyInput.value.trim();
+  const listEl = $('documentsList');
+  if (!apiKey) return;
+  try {
+    const res = await fetch(`${base}/api/v1/documents?page=1&page_size=10`, {
+      headers: { 'X-API-Key': apiKey },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const docs = data.documents || [];
+    if (docs.length === 0) {
+      listEl.innerHTML = `<div style="padding:22px 18px;text-align:center;color:var(--text-muted);font-size:13px;">No documents ingested yet</div>`;
+      return;
+    }
+    listEl.innerHTML = docs.map(d => `
+      <div class="doc-item">
+        <div class="doc-icon"><i class="bi bi-file-earmark-pdf"></i></div>
+        <div class="doc-name" title="${escHtml(d.filename)}">${escHtml(d.filename)}</div>
+        <span class="doc-status ${d.status}">${d.status}</span>
+      </div>`).join('');
+  } catch { /* silently fail */ }
+}
+
+function setSelectedFile(file) {
+  state.selectedFile = file;
+  $('dropzone').style.display = 'none';
+  $('ingestBtn').disabled = false;
+
+  const sizeKb = (file.size / 1024).toFixed(1);
+  const sizeStr = file.size > 1024 * 1024 ? `${(file.size / (1024*1024)).toFixed(2)} MB` : `${sizeKb} KB`;
+
+  $('fileChipWrap').innerHTML = `
+    <div class="file-chip">
+      <div class="file-chip-icon"><i class="bi bi-file-earmark-pdf-fill"></i></div>
+      <div style="flex:1; min-width:0;">
+        <div class="file-chip-name">${escHtml(file.name)}</div>
+        <div class="file-chip-size">${sizeStr}</div>
+      </div>
+      <button class="file-chip-remove" onclick="clearSelectedFile()" title="Remove">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>`;
+}
+
+function clearSelectedFile() {
+  state.selectedFile = null;
+  $('pdfFileInput').value = '';
+  $('fileChipWrap').innerHTML = '';
+  $('dropzone').style.display = 'block';
+  $('ingestBtn').disabled = true;
+}
+
+async function triggerIngest() {
+  const apiKey = apiKeyInput.value.trim();
+  const base   = endpointInput.value.trim() || 'http://localhost:8000';
+  const file   = state.selectedFile;
+
+  if (!file)   { showToast('Select a PDF to ingest', 'error'); return; }
+  if (!apiKey) { showToast('API key required', 'error'); return; }
+
+  const btn    = $('ingestBtn');
+  const wrap   = $('ingestProgressWrap');
+  const banner = $('ingestCompleteBanner');
+  const fill   = $('ingestProgressFill');
+  const stText = $('ingestStatusText');
+  const pgCnt  = $('ingestPageCount');
+
+  banner.style.display = 'none';
+  banner.innerHTML     = '';
+  wrap.classList.add('visible');
+  fill.className       = 'ingest-progress-bar-fill indeterminate';
+  stText.textContent   = 'Uploading & parsing PDF…';
+  pgCnt.textContent     = '';
+  btn.disabled         = true;
+  btn.innerHTML        = `<span style="width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block;"></span> Ingesting…`;
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch(`${base}/api/v1/ingest`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey },
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      showIngestError(data.detail || `HTTP ${res.status}`);
+      resetIngestBtn();
+      return;
+    }
+
+    fill.classList.remove('indeterminate');
+    fill.style.width = '100%';
+    stText.textContent = 'Finished!';
+    pgCnt.textContent  = `${data.chunk_count ?? '?'} chunks · ${data.page_count ?? '?'} pages`;
+
+    showIngestComplete(data);
+    resetIngestBtn();
+    clearSelectedFile();
+    fetchDocuments();
+    fetchMetrics();
+    showToast(`Ingested "${data.filename}" — ${data.chunk_count} chunks`, 'success');
+
+  } catch {
+    showIngestError('Could not reach the API. Check the endpoint and ensure the server is running.');
+    resetIngestBtn();
+  }
+}
+
+function showIngestComplete(data) {
+  const banner = $('ingestCompleteBanner');
+  const bd = data.chunk_type_breakdown || {};
+  banner.style.display = 'block';
+  banner.innerHTML = `
+    <div class="ingest-complete-banner">
+      <i class="bi bi-check-circle-fill" style="font-size:16px;flex-shrink:0;"></i>
+      <div style="flex:1;">
+        <div style="font-weight:600;">Ingestion complete · v${data.version ?? 1}</div>
+        <div style="color:rgba(16,185,129,0.75);margin-top:1px;">Document ID ${data.document_id} · ${data.chunk_count} chunks across ${data.page_count} pages</div>
+        <div class="chunk-breakdown-row">
+          <span class="chunk-breakdown-chip"><i class="bi bi-fonts"></i> text: ${bd.text ?? 0}</span>
+          <span class="chunk-breakdown-chip"><i class="bi bi-table"></i> table: ${bd.table ?? 0}</span>
+          <span class="chunk-breakdown-chip"><i class="bi bi-image"></i> image: ${bd.image ?? 0}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function showIngestError(msg) {
+  const wrap   = $('ingestProgressWrap');
+  const banner = $('ingestCompleteBanner');
+  wrap.classList.remove('visible');
+  banner.style.display = 'block';
+  banner.innerHTML = `
+    <div class="ingest-error-banner">
+      <i class="bi bi-exclamation-circle-fill" style="font-size:16px;flex-shrink:0;"></i>
+      <div>
+        <div style="font-weight:600;">Ingestion failed</div>
+        <div style="color:rgba(244,63,94,0.75);margin-top:1px;">${escHtml(msg)}</div>
+      </div>
+    </div>`;
+  showToast(msg, 'error');
+}
+
+function resetIngestBtn() {
+  const btn = $('ingestBtn');
+  btn.disabled = !state.selectedFile;
+  btn.innerHTML = `<i class="bi bi-upload"></i> Ingest Document`;
+}
+
+async function sendQuestion() {
+  const question = questionInput.value.trim();
+  if (!question) return;
+
+  const apiKey  = apiKeyInput.value.trim();
+  const base    = endpointInput.value.trim() || 'http://localhost:8000';
+  const docId   = $('documentIdInput').value.trim();
+  const threshold = parseFloat($('thresholdDisplay').value);
+
+  if (!apiKey) {
+    showToast('Paste your API key in the config bar above', 'error');
+    apiKeyInput.focus();
+    return;
+  }
+
+  $('quickPrompts').style.display = 'none';
+  if (emptyState) emptyState.remove();
+
+  appendMessage('user', question);
+  questionInput.value = '';
+  questionInput.style.height = 'auto';
+  $('charCount').textContent = '0 / 2000';
+
+  const typingId = appendTyping();
+  setLoading(true);
+
+  const payload = { question };
+  if (docId)  payload.document_id = parseInt(docId, 10);
+  if (!isNaN(threshold)) payload.confidence_threshold = threshold;
+
+  try {
+    const res = await fetch(`${base}/api/v1/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, 'Accept': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    removeTyping(typingId);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      appendMessage('bot', `⚠️ ${err.detail || `HTTP ${res.status}`}`, null);
+      showToast(err.detail || `HTTP ${res.status}`, 'error');
+    } else {
+      const data = await res.json();
+      appendMessage('bot', data.answer, data);
+      addToHistory(question, data);
+      fetchMetrics();
+    }
+  } catch {
+    removeTyping(typingId);
+    appendMessage('bot', '⚠️ Could not reach the API. Check the endpoint and ensure the server is running.', null);
+    showToast('Connection failed', 'error');
+  }
+
+  setLoading(false);
+}
+
+function appendMessage(role, text, meta) {
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.innerHTML = role === 'user' ? '<i class="bi bi-person-fill"></i>' : '<i class="bi bi-cpu-fill"></i>';
+
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.textContent = text;
+  body.appendChild(bubble);
+
+  if (role === 'bot' && meta) {
+    const metaRow = document.createElement('div');
+    metaRow.className = 'msg-meta';
+
+    const badge = document.createElement('span');
+    badge.className = `badge-type badge-${meta.response_type}`;
+    badge.textContent = meta.response_type.replace('_', ' ');
+    metaRow.appendChild(badge);
+
+    if (meta.total_latency_ms != null) {
+      const lat = document.createElement('span');
+      lat.className = 'msg-latency';
+      lat.innerHTML = `<i class="bi bi-stopwatch"></i> ${meta.total_latency_ms}ms`;
+      metaRow.appendChild(lat);
+    }
+
+    if (meta.confidence_score != null) {
+      const score = document.createElement('span');
+      score.className = 'msg-score';
+      score.textContent = `confidence: ${meta.confidence_score.toFixed(2)}`;
+      metaRow.appendChild(score);
+    }
+
+    if (meta.hallucination_check) {
+      const grounded = meta.hallucination_check.is_grounded;
+      const pill = document.createElement('span');
+      pill.className = `grounding-pill ${grounded ? 'grounded' : 'not-grounded'}`;
+      pill.innerHTML = grounded
+        ? `<i class="bi bi-shield-check"></i> grounded`
+        : `<i class="bi bi-exclamation-triangle"></i> ungrounded`;
+      metaRow.appendChild(pill);
+    }
+
+    body.appendChild(metaRow);
+
+    if (meta.sources && meta.sources.length > 0 && meta.request_id) {
+      const togBtn = document.createElement('button');
+      togBtn.className = 'sources-toggle';
+      togBtn.innerHTML = `<i class="bi bi-link-45deg"></i> ${meta.sources.length} source${meta.sources.length > 1 ? 's' : ''}`;
+
+      const sourcesList = document.createElement('div');
+      sourcesList.className = 'sources-list';
+      meta.sources.forEach(s => {
+        const chip = document.createElement('button');
+        chip.className = 'source-chip';
+        chip.type = 'button';
+        chip.innerHTML = `<i class="bi bi-file-earmark-pdf"></i> ${escHtml(s.document_name)} · p.${s.page_number} · ${escHtml(s.chunk_type)}`;
+        chip.onclick = () => openExplain(meta.request_id);
+        sourcesList.appendChild(chip);
+      });
+
+      togBtn.onclick = () => {
+        const isOpen = sourcesList.classList.contains('open');
+        sourcesList.classList.toggle('open', !isOpen);
+        togBtn.innerHTML = `<i class="bi bi-link-45deg"></i> ${isOpen ? `${meta.sources.length} source${meta.sources.length > 1 ? 's' : ''}` : 'hide sources'}`;
+      };
+
+      body.appendChild(togBtn);
+      body.appendChild(sourcesList);
+    }
+  }
+
+  div.appendChild(avatar);
+  div.appendChild(body);
+  chatHistory.appendChild(div);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+async function openExplain(requestId) {
+  const base   = endpointInput.value.trim() || 'http://localhost:8000';
+  const apiKey = apiKeyInput.value.trim();
+  const body   = $('explainModalBody');
+
+  body.innerHTML = `<div class="text-center py-4" style="color:var(--text-muted);">
+    <div class="spinner-border" role="status" style="color:var(--accent-lt); width:28px; height:28px;"></div>
+  </div>`;
+  explainModal.show();
+
+  try {
+    const res = await fetch(`${base}/api/v1/explain/${requestId}`, {
+      headers: { 'X-API-Key': apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      body.innerHTML = `<div style="color:var(--red); font-size:13px;">${escHtml(err.detail || 'Could not load explanation')}</div>`;
+      return;
+    }
+    const data = await res.json();
+
+    const summaryHtml = `
+      <div class="explain-summary-row">
+        <div class="explain-summary-item">
+          <div class="explain-summary-val" style="color:var(--cyan)">${(data.confidence_score ?? 0).toFixed(2)}</div>
+          <div class="explain-summary-lbl">Confidence</div>
+        </div>
+        <div class="explain-summary-item">
+          <div class="explain-summary-val" style="color:var(--accent-lt)">${data.chunks?.length ?? 0}</div>
+          <div class="explain-summary-lbl">Chunks Used</div>
+        </div>
+        <div class="explain-summary-item">
+          <div class="explain-summary-val" style="color:var(--green)">${data.retrieval_latency_ms ?? '—'}ms</div>
+          <div class="explain-summary-lbl">Retrieval</div>
+        </div>
+        <div class="explain-summary-item">
+          <div class="explain-summary-val" style="color:var(--amber)">${data.generation_latency_ms ?? '—'}ms</div>
+          <div class="explain-summary-lbl">Generation</div>
+        </div>
+      </div>`;
+
+    const chunksHtml = (data.chunks || []).map(c => `
+      <div class="explain-chunk">
+        <div class="explain-chunk-head">
+          <div class="d-flex align-items-center gap-2">
+            <div class="explain-rank">${c.rank}</div>
+            <span class="explain-meta-chip"><i class="bi bi-file-earmark-pdf"></i> ${escHtml(c.document_name)}</span>
+            <span class="explain-meta-chip">p.${c.page_number}</span>
+            <span class="explain-meta-chip">${escHtml(c.chunk_type)}</span>
+          </div>
+          <span class="explain-score">score ${c.score != null ? Number(c.score).toFixed(4) : c.relevance_score ?? '—'}</span>
+        </div>
+        <div class="explain-preview">${escHtml(c.content_preview || '')}</div>
+      </div>`).join('');
+
+    body.innerHTML = summaryHtml + (chunksHtml || `<div style="color:var(--text-muted); font-size:13px;">No chunk details available.</div>`);
+
+  } catch {
+    body.innerHTML = `<div style="color:var(--red); font-size:13px;">Could not reach the API for explain details.</div>`;
+  }
+}
+
+let typingCounter = 0;
+function appendTyping() {
+  const id  = `typing-${++typingCounter}`;
+  const div = document.createElement('div');
+  div.className = 'message bot';
+  div.id = id;
+  div.innerHTML = `
+    <div class="msg-avatar"><i class="bi bi-cpu-fill"></i></div>
+    <div class="msg-body">
+      <div class="typing-indicator">
+        <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+      </div>
+    </div>`;
+  chatHistory.appendChild(div);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+  return id;
+}
+function removeTyping(id) { const el = $(id); if (el) el.remove(); }
+
+function addToHistory(question, data) {
+  state.sessionHistory.unshift({ question, data, ts: new Date() });
+  renderHistory();
+  if (!state.historyOpen) { state.historyOpen = true; applyHistoryCollapse(true); }
+}
+
+function renderHistory() {
+  const list = $('historyList');
+  if (state.sessionHistory.length === 0) {
+    list.innerHTML = `<div style="padding:24px 18px;text-align:center;color:var(--text-muted);font-size:13px;">No questions yet</div>`;
+    return;
+  }
+  list.innerHTML = state.sessionHistory.slice(0, 20).map((item, i) => `
+    <div class="history-item" onclick="reaskQuestion(${i})">
+      <div class="history-q">${escHtml(item.question)}</div>
+      <div class="history-meta">
+        <span class="badge-type badge-${item.data.response_type}" style="font-size:10px;">${item.data.response_type.replace('_',' ')}</span>
+        <span class="history-time">${item.ts.toLocaleTimeString()}</span>
+      </div>
+    </div>`).join('');
+}
+
+function reaskQuestion(i) {
+  const item = state.sessionHistory[i];
+  if (item) { questionInput.value = item.question; questionInput.dispatchEvent(new Event('input')); questionInput.focus(); }
+}
+
+function clearHistory() {
+  state.sessionHistory = [];
+  renderHistory();
+  showToast('Session history cleared', 'info');
+}
+
+function toggleHistoryPanel() {
+  state.historyOpen = !state.historyOpen;
+  applyHistoryCollapse(state.historyOpen);
+  const saved = JSON.parse(localStorage.getItem('insightdocket_settings') || '{}');
+  saved.historyOpen = state.historyOpen;
+  localStorage.setItem('insightdocket_settings', JSON.stringify(saved));
+}
+
+function applyHistoryCollapse(open) {
+  const collapsible = $('historyCollapsible');
+  const chevron     = $('historyChevron');
+  if (open) { collapsible.style.display = ''; chevron.className = 'bi bi-chevron-up'; }
+  else      { collapsible.style.display = 'none'; chevron.className = 'bi bi-chevron-down'; }
+}
+
+function useQuick(btn) {
+  questionInput.value = btn.textContent;
+  questionInput.dispatchEvent(new Event('input'));
+  questionInput.focus();
+}
+
+function switchTab(evt, tab) {
+  state.activeTab = tab;
+  document.querySelectorAll('.code-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.code-snippet').forEach(s => s.classList.remove('active'));
+  evt.currentTarget.classList.add('active');
+  $(`snippet-${tab}`).classList.add('active');
+}
+
+function refreshCodeSnippets() {
+  const key  = apiKeyInput.value.trim() || 'YOUR_API_KEY';
+  const base = (endpointInput.value.trim() || 'http://localhost:8000');
+  const displayKey = key === 'YOUR_API_KEY' ? key : key.slice(0,6) + '••••' + key.slice(-4);
+
+  $('snippet-curl').innerHTML = syntaxHL('curl', `curl -X POST ${base}/api/v1/query \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: ${displayKey}" \\
+  -d '{
+    "question": "What is the total revenue for Q3?",
+    "confidence_threshold": 0.35
+  }'`);
+
+  $('snippet-js').innerHTML = syntaxHL('js', `const response = await fetch(
+  "${base}/api/v1/query",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": "${displayKey}",
+    },
+    body: JSON.stringify({
+      question: "What is the total revenue for Q3?",
+      confidence_threshold: 0.35,
+    }),
+  }
+);
+const data = await response.json();
+console.log(data.answer, data.sources);`);
+
+  $('snippet-python').innerHTML = syntaxHL('python', `import requests
+
+resp = requests.post(
+    "${base}/api/v1/query",
+    headers={
+        "Content-Type": "application/json",
+        "X-API-Key": "${displayKey}",
+    },
+    json={
+        "question": "What is the total revenue for Q3?",
+        "confidence_threshold": 0.35,
+    },
+)
+data = resp.json()
+print(data["answer"])
+print(data["sources"])`);
+}
+
+function syntaxHL(lang, code) {
+  let s = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if (lang === 'curl') {
+    s = s.replace(/(curl|-X|-H|-d)/g, '<span class="code-kw">$1</span>')
+         .replace(/("(?:[^"\\]|\\.)*")/g, '<span class="code-str">$1</span>');
+  } else if (lang === 'js') {
+    s = s.replace(/\b(const|await|fetch|method|headers|body|JSON\.stringify|console\.log)\b/g, '<span class="code-kw">$1</span>')
+         .replace(/("(?:[^"\\]|\\.)*")/g, '<span class="code-str">$1</span>');
+  } else if (lang === 'python') {
+    s = s.replace(/\b(import|requests|resp|json|print|data)\b/g, '<span class="code-kw">$1</span>')
+         .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span class="code-str">$1</span>');
+  }
+  return s;
+}
+
+async function copyActiveSnippet() {
+  const el   = $(`snippet-${state.activeTab}`);
+  const text = el.innerText;
+  const key  = apiKeyInput.value.trim();
+  const real = key ? text.replace(/[a-z0-9]{6}••••[a-z0-9]{4}/i, key) : text;
+  try {
+    await navigator.clipboard.writeText(real);
+    showToast('Copied to clipboard', 'success');
+  } catch {
+    showToast('Copy failed — try selecting manually', 'error');
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem('insightdocket_settings', JSON.stringify({
+    apiKey:      apiKeyInput.value,
+    endpoint:    endpointInput.value,
+    documentId:  $('documentIdInput').value,
+    threshold:   $('thresholdDisplay').value,
+    historyOpen: state.historyOpen,
+  }));
+  showToast('Settings saved', 'success');
+  checkHealth();
+  fetchMetrics();
+  fetchDocuments();
+  refreshCodeSnippets();
+}
+
+function setLoading(val) {
+  state.isLoading  = val;
+  sendBtn.disabled = val;
+  questionInput.disabled = val;
+  sendBtn.innerHTML = val
+    ? `<div class="spinner"></div>`
+    : `<i class="bi bi-arrow-up-short" style="font-size:22px;"></i>`;
+}
+
+function showToast(msg, type = 'info') {
+  const icons  = { success:'bi-check-circle-fill', error:'bi-exclamation-circle-fill', info:'bi-info-circle-fill' };
+  const colors = { success:'var(--green)', error:'var(--red)', info:'var(--accent-lt)' };
+  const toast  = document.createElement('div');
+  toast.className = `toast-msg ${type}`;
+  toast.innerHTML = `<i class="bi ${icons[type]}" style="color:${colors[type]};font-size:16px;"></i> ${escHtml(msg)}`;
+  $('toastContainer').appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

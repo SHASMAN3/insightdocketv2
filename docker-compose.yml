@@ -1,0 +1,158 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# InsightDocket — docker-compose
+#
+# Services:
+#   mongodb  — MongoDB 7.0 with $vectorSearch support (single container)
+#   mysql    — MySQL 8.0 for audit logs, document metadata, versioning
+#   app      — FastAPI application
+#
+# Interview note: MongoDB 7.0 is required for $vectorSearch (not Atlas-only).
+# directConnection=true in the app's MongoDB URI tells Motor to skip
+# replica set discovery — correct for single-container deployments.
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  insightdocket:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  mysql_data:
+  pdf_storage:
+  audit_logs:
+
+services:
+
+  # ── MongoDB 7.0 ─────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: insightdocket_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: server
+      MONGO_INITDB_ROOT_PASSWORD: 7ygLIIK6T76876
+      MONGO_INITDB_DATABASE: insightdocket
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - insightdocket
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command: mongod --auth --bind_ip_all
+    # Note: After first startup, create the vector search index via:
+    #   docker exec -it insightdocket_mongodb mongosh \
+    #     -u server -p 7ygLIIK6T76876 --authenticationDatabase admin \
+    #     insightdocket --eval "
+    #       db.chunks.createIndex(
+    #         { embedding: 'cosmosSearch' },
+    #         { name: 'vector_index',
+    #           cosmosSearchOptions: {
+    #             kind: 'vector-hnsw',
+    #             numLists: 100,
+    #             dimensions: 768,
+    #             similarity: 'cosine'
+    #           }
+    #         }
+    #       )"
+    # See README for full vector index creation command.
+
+  # ── MySQL 8.0 ───────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: insightdocket_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_change_in_prod
+      MYSQL_DATABASE: insightdocket
+      MYSQL_USER: insightdocket
+      MYSQL_PASSWORD: insightdocket_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init_mysql.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - insightdocket
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "insightdocket", "-pinsightdocket_pass"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+
+  # ── FastAPI Application ──────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: insightdocket_app
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      # ── Google AI ──────────────────────────────────────
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      # ── LangSmith ──────────────────────────────────────
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-true}
+      LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
+      LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-insightdocket}
+      # ── MongoDB ────────────────────────────────────────
+      # Use service name 'mongodb' for internal Docker networking
+      MONGODB_URI: "mongodb://server:7ygLIIK6T76876@mongodb:27017/?authSource=admin&directConnection=true"
+      MONGODB_DATABASE: insightdocket
+      MONGODB_COLLECTION: chunks
+      MONGODB_VECTOR_INDEX: vector_index
+      # ── MySQL ──────────────────────────────────────────
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: insightdocket
+      MYSQL_PASSWORD: insightdocket_pass
+      MYSQL_DATABASE: insightdocket
+      # ── App ────────────────────────────────────────────
+      APP_ENV: ${APP_ENV:-development}
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+      # ── Storage ────────────────────────────────────────
+      PDF_STORAGE_PATH: /app/storage/pdfs
+      AUDIT_LOG_DIR: /app/logs
+      # ── Tuning ─────────────────────────────────────────
+      GEMINI_RPM_LIMIT: ${GEMINI_RPM_LIMIT:-15}
+      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.35}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-10}
+      VECTOR_TOP_K: ${VECTOR_TOP_K:-20}
+      TEXT_TOP_K: ${TEXT_TOP_K:-20}
+      FINAL_TOP_K: ${FINAL_TOP_K:-5}
+      RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      SECRET_KEY: ${SECRET_KEY:-change_this_in_production}
+    ports:
+      - "8000:8000"
+    volumes:
+      - pdf_storage:/app/storage/pdfs
+      - audit_logs:/app/logs
+      # Mount HuggingFace cache to avoid re-downloading cross-encoder on restart
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    networks:
+      - insightdocket
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

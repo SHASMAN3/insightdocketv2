@@ -1,0 +1,50 @@
+# =============================================================================
+# InsightDocket — requirements.txt
+# Python 3.12 — Unpinned for dynamic resolution via uv
+# Install: uv add -r requirements.txt
+# =============================================================================
+
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ── Pydantic v2 ───────────────────────────────────────────────────────────────
+pydantic
+pydantic-settings
+
+# ── LangChain ecosystem ───────────────────────────────────────────────────────
+langchain
+langchain-google-genai
+langchain-community
+langsmith
+
+# ── Google Generative AI ──────────────────────────────────────────────────────
+google-generativeai
+
+# ── MongoDB async driver ──────────────────────────────────────────────────────
+motor
+
+# ── MySQL async ───────────────────────────────────────────────────────────────
+sqlalchemy
+aiomysql
+cryptography
+
+# ── PDF parsing ───────────────────────────────────────────────────────────────
+unstructured[pdf]
+pdfminer.six
+pillow
+pdf2image
+
+# ── Reranker — local cross-encoder, no API calls ──────────────────────────────
+sentence-transformers
+torch
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv
+httpx
+tenacity
+structlog
+bleach
+python-jose[cryptography]
+passlib[bcrypt]
