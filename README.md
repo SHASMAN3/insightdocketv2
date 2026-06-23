@@ -256,51 +256,6 @@ Interactive docs: `http://localhost:8000/docs`
 
 ---
 
-## Design Decisions (Interview Defence Points)
-
-### Why MongoDB for vectors?
-`$vectorSearch` and `$text` run in a single aggregation pipeline — no second service, no cross-service latency, no synchronisation lag between vector and keyword indexes. At 1M documents, the HNSW index provides sub-linear ANN search.
-
-### Why MySQL alongside MongoDB?
-ACID guarantees are required for document versioning and audit trails. MongoDB's eventual consistency model is wrong for "which version of this document was active at query time?" or compliance-grade audit logs. The two databases are complementary, not redundant.
-
-### Why `unstructured` hi-res strategy?
-Naive text extraction (PyPDF2, pdfminer) loses table structure — all rows collapse into flat text. Hi-res strategy uses detectron2 layout detection to extract table HTML and embedded images as separate elements. A question like "what does the Q3 revenue table show?" is only answerable with structured table extraction.
-
-### Why RRF fusion?
-Vector search excels at semantic similarity but underperforms on exact keywords (product codes, proper nouns). BM25 excels at keywords but misses paraphrase. RRF is score-scale-invariant (uses rank positions, not raw scores) and achieves ~12% recall improvement over pure vector search on keyword-heavy queries (BEIR benchmark).
-
-### Why cross-encoder reranking?
-Bi-encoder embeddings encode query and document independently — fast for ANN search but miss fine-grained relevance signals. Cross-encoders attend jointly to (query, passage) pairs, producing more accurate relevance scores. We use it to rerank 40 RRF candidates → 5 final chunks. The model runs locally (22M params, CPU-feasible).
-
-### Why confidence threshold?
-Low-confidence answers (from weakly-relevant chunks) erode user trust faster than honest fallbacks. The threshold is tunable per deployment — stricter for regulated industries, more permissive for internal tooling.
-
-### Why hallucination filter?
-Even with a strict grounded prompt, LLMs occasionally draw on parametric memory for specific numbers or dates. Token-overlap check provides a second grounding verification after generation. False positives are logged but the answer is still returned — operators can tune the threshold.
-
-### Why separate chunk types?
-Table HTML and base64 images cannot be meaningfully embedded as raw bytes. Gemini Vision summarisation produces semantically rich text summaries that embed well and are retrievable via natural language questions.
-
----
-
-## Running Tests
-
-```bash
-# Full test suite with coverage
-uv run pytest
-
-# Fast: skip slow tests
-uv run pytest -m "not slow"
-
-# Single module
-uv run pytest tests/test_sanitiser.py -v
-```
-
-Coverage requirement: **≥ 70%** (enforced in CI).
-
----
-
 ## Project Structure
 
 ```
