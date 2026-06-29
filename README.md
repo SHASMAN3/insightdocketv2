@@ -19,79 +19,115 @@
 ## Architecture
 
 ```mermaid
-flowchart TD
-    Client(["Client\n(curl / frontend)"])
+flowchart TB
+    %% --- Styling Definitions ---
+    classDef client fill:#1E293B,stroke:#0F172A,stroke-width:2px,color:#fff,rx:8px,ry:8px,shadow:true
+    classDef api fill:#0284C7,stroke:#0369A1,stroke-width:2px,color:#fff,rx:8px,ry:8px,shadow:true
+    classDef ingest fill:#7C3AED,stroke:#5B21B6,stroke-width:2px,color:#fff,rx:8px,ry:8px,shadow:true
+    classDef retrieve fill:#059669,stroke:#047857,stroke-width:2px,color:#fff,rx:8px,ry:8px,shadow:true
+    classDef generate fill:#EA580C,stroke:#C2410C,stroke-width:2px,color:#fff,rx:8px,ry:8px,shadow:true
+    classDef storage fill:#475569,stroke:#334155,stroke-width:2px,color:#fff,rx:8px,ry:8px,shadow:true
+    classDef observe fill:#CA8A04,stroke:#A16207,stroke-width:2px,color:#fff,rx:8px,ry:8px,shadow:true
+    classDef endpoint fill:#0F172A,stroke:#38BDF8,stroke-width:1px,color:#fff,rx:15px,ry:15px
 
-    subgraph API["FastAPI — /api/v1"]
-        INGEST["/ingest\nPDF upload"]
-        QUERY["/query\nRAG QA"]
-        EXPLAIN["/explain/{id}\nChunk breakdown"]
-        HEALTH["/health\nLiveness probe"]
-        METRICS["/metrics\nIn-process counters"]
+    Client(["💻 Client<br/>(curl / frontend)"]):::client
+
+    %% --- API Layer ---
+    subgraph API["🌐 API Layer (FastAPI — /api/v1)"]
+        direction LR
+        INGEST(["📥 /ingest"]):::endpoint
+        QUERY(["🔍 /query"]):::endpoint
+        EXPLAIN(["📊 /explain/{id}"]):::endpoint
+        HEALTH(["❤️ /health"]):::endpoint
+        METRICS(["📈 /metrics"]):::endpoint
     end
 
-    subgraph Ingestion["Ingestion Pipeline"]
-        PARSER["unstructured\nhi-res PDF parser\ntext | table | image"]
-        SUMMARISER["Gemini Flash multimodal\nTable + Image summarisation"]
-        EMBEDDER["Google Gemini embeddings\n768-dim configured output\nBatch + rate limited"]
+    %% --- Core RAG Pipelines ---
+    subgraph Pipelines ["⚙️ Core Processing"]
+        direction TB
+        
+        subgraph Ingestion ["Ingestion Pipeline"]
+            direction TB
+            PARSER["📄 unstructured<br/>hi-res PDF parser<br/>(text | table | image)"]:::ingest
+            SUMMARISER["✨ Gemini Flash<br/>Multimodal Summarisation"]:::ingest
+            EMBEDDER["🧠 Gemini Embeddings<br/>768-dim Batching"]:::ingest
+        end
+
+        subgraph Retrieval ["Retrieval Pipeline"]
+            direction TB
+            VSEARCH["📍 MongoDB $vectorSearch<br/>(HNSW cosine)"]:::retrieve
+            TSEARCH["📝 MongoDB $text<br/>(keyword full-text)"]:::retrieve
+            RRF["🔗 Reciprocal Rank<br/>Fusion (k=60)"]:::retrieve
+            RERANK["🎯 Cross-encoder<br/>ms-marco-MiniLM-L-6-v2<br/>(local, no API)"]:::retrieve
+            CONF["⚖️ Confidence Scoring<br/>+ Fallback logic"]:::retrieve
+        end
+
+        subgraph Generation ["Generation Pipeline"]
+            direction TB
+            PROMPT["📝 Grounded prompt<br/>template"]:::generate
+            GEMINI["⚡ Gemini 2.5 Flash<br/>generation"]:::generate
+            HALLUC["🛡️ Hallucination filter<br/>(token overlap check)"]:::generate
+        end
     end
 
-    subgraph Retrieval["Retrieval Pipeline"]
-        VSEARCH["MongoDB $vectorSearch\nHNSW cosine similarity"]
-        TSEARCH["MongoDB $text\nkeyword full-text"]
-        RRF["Reciprocal Rank\nFusion (k=60)"]
-        RERANK["Cross-encoder\nms-marco-MiniLM-L-6-v2\n(local, no API)"]
-        CONF["Confidence Scoring\n+ Fallback logic"]
+    %% --- Storage Layer ---
+    subgraph Storage ["🗄️ Storage Layer"]
+        direction LR
+        LOCALFS[("📂 Local FS<br/>PDF storage<br/>(S3-compatible)")]:::storage
+        MONGO[("🍃 MongoDB 7.0<br/>chunks + embeddings<br/>$vectorSearch + $text")]:::storage
+        MYSQL[("🐬 MySQL 8.0<br/>docs | versions | audit | keys")]:::storage
     end
 
-    subgraph Generation["Generation Pipeline"]
-        PROMPT["Grounded prompt\ntemplate"]
-        GEMINI["Gemini 2.5 Flash\ngeneration"]
-        HALLUC["Hallucination filter\ntoken overlap check"]
+    %% --- Observability Layer ---
+    subgraph Observability ["🛠️ Observability & Control"]
+        direction LR
+        LANGSMITH["🐶 LangSmith<br/>Trace dashboard"]:::observe
+        JSONL["📄 Daily JSONL<br/>audit backup"]:::observe
+        RATELIM["🚦 GeminiRateLimiter<br/>Token bucket 15 RPM"]:::observe
     end
 
-    subgraph Storage["Storage Layer"]
-        LOCALFS["Local FS\nPDF storage\n(S3-compatible interface)"]
-        MONGO[("MongoDB 7.0\nchunks + embeddings\n$vectorSearch + $text")]
-        MYSQL[("MySQL 8.0\ndocuments | versions\naudit_logs | api_keys")]
-    end
+    %% =======================
+    %% EDGE ROUTING & LOGIC
+    %% =======================
 
-    subgraph Observability
-        LANGSMITH["LangSmith\nTrace dashboard"]
-        JSONL["Daily JSONL\naudit backup"]
-        RATELIM["GeminiRateLimiter\nToken bucket 15 RPM"]
-    end
+    %% Client Auth
+    Client -->|"X-API-Key auth"| INGEST & QUERY & EXPLAIN
 
-    Client -->|"X-API-Key auth"| API
-    INGEST --> Ingestion
-    Ingestion --> LOCALFS
-    Ingestion --> MONGO
-    Ingestion --> MYSQL
+    %% Ingestion Flow
+    INGEST -->|"PDF Upload"| PARSER
+    PARSER --> SUMMARISER --> EMBEDDER
+    
+    %% Retrieval Flow
+    QUERY -->|"RAG QA"| VSEARCH & TSEARCH
+    VSEARCH & TSEARCH --> RRF
+    RRF --> RERANK --> CONF
 
-    QUERY --> Retrieval
-    Retrieval --> VSEARCH
-    Retrieval --> TSEARCH
-    VSEARCH --> RRF
-    TSEARCH --> RRF
-    RRF --> RERANK
-    RERANK --> CONF
-    CONF -->|"above threshold"| Generation
-    CONF -->|"below threshold"| QUERY
-    Generation --> GEMINI
-    GEMINI --> HALLUC
-    HALLUC --> QUERY
+    %% Generation Flow
+    CONF -->|"above threshold"| PROMPT
+    PROMPT --> GEMINI --> HALLUC
+    
+    %% Return Logic (Cleaned up loops)
+    CONF -->|"below threshold<br/>(Structured Fallback)"| RESPONSE(["📤 Return to Client"]):::client
+    HALLUC -->|"Final Output"| RESPONSE
 
-    VSEARCH --> MONGO
-    TSEARCH --> MONGO
-    QUERY --> MYSQL
-    EXPLAIN --> MYSQL
-    EXPLAIN --> MONGO
+    %% Storage Reads/Writes
+    EMBEDDER -->|"Store Chunks/Vectors"| MONGO
+    PARSER -->|"Store Raw PDF"| LOCALFS
+    INGEST -->|"Init Document Record"| MYSQL
+    
+    VSEARCH -.->|"Query"| MONGO
+    TSEARCH -.->|"Query"| MONGO
+    QUERY -.->|"Log Request"| MYSQL
+    EXPLAIN -.->|"Fetch Meta"| MYSQL
+    EXPLAIN -.->|"Fetch Chunks"| MONGO
 
-    GEMINI --> LANGSMITH
-    QUERY --> JSONL
-    GEMINI -.->|"rate limited"| RATELIM
-    EMBEDDER -.->|"rate limited"| RATELIM
-    SUMMARISER -.->|"rate limited"| RATELIM
+    %% Observability Tracking
+    GEMINI -.->|"Trace"| LANGSMITH
+    QUERY -.->|"Backup"| JSONL
+    
+    %% Rate Limiting
+    GEMINI & EMBEDDER & SUMMARISER -.->|"check limits"| RATELIM
+
 ```
 
 ---
