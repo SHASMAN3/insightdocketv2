@@ -1,6 +1,6 @@
 # InsightDocket — Multimodal RAG PDF QA System
 
-> **Production-grade RAG system** with MongoDB hybrid search, Gemini Vision, cross-encoder reranking, and full audit trails. Designed for enterprise document intelligence at scale.
+> **Production-grade RAG system** with MongoDB hybrid search, Gemini Flash multimodal generation, cross-encoder reranking, and full audit trails. Designed for enterprise document intelligence at scale.
 
 ---
 
@@ -32,13 +32,13 @@ flowchart TD
 
     subgraph Ingestion["Ingestion Pipeline"]
         PARSER["unstructured\nhi-res PDF parser\ntext | table | image"]
-        SUMMARISER["Gemini 2.5 Flash Vision\nTable + Image summarisation"]
-        EMBEDDER["GoogleGenerativeAI\nEmbeddings (768-dim)\nBatch + rate limited"]
+        SUMMARISER["Gemini Flash multimodal\nTable + Image summarisation"]
+        EMBEDDER["Google Gemini embeddings\n768-dim configured output\nBatch + rate limited"]
     end
 
     subgraph Retrieval["Retrieval Pipeline"]
         VSEARCH["MongoDB $vectorSearch\nHNSW cosine similarity"]
-        TSEARCH["MongoDB $text\nBM25 full-text"]
+        TSEARCH["MongoDB $text\nkeyword full-text"]
         RRF["Reciprocal Rank\nFusion (k=60)"]
         RERANK["Cross-encoder\nms-marco-MiniLM-L-6-v2\n(local, no API)"]
         CONF["Confidence Scoring\n+ Fallback logic"]
@@ -100,9 +100,9 @@ flowchart TD
 
 | Layer | Technology | Reason |
 |-------|-----------|--------|
-| LLM + Vision | Gemini 2.5 Flash | Free tier, multimodal, 1M context |
-| Embeddings | Google text-embedding-004 | 768-dim, free tier, RETRIEVAL_DOCUMENT task |
-| Vector DB | MongoDB 7.0 `$vectorSearch` | Native vector + BM25 in one aggregation pipeline |
+| LLM + Vision | Gemini Flash multimodal model | Configurable in `app/config.py`; current default is `gemini-3.1-flash-lite` |
+| Embeddings | Google Gemini embeddings | Current default is `gemini-embedding-001` with 768-dimensional output configured for retrieval |
+| Vector DB | MongoDB 7.0 `$vectorSearch` | Native vector search plus `$text` keyword search in one storage layer |
 | Structured DB | MySQL 8.0 | ACID for versioning and audit trails |
 | PDF Parsing | `unstructured` hi-res | Preserves table HTML and image extraction |
 | Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Local, 22M params, no API cost |
@@ -249,7 +249,7 @@ Interactive docs: `http://localhost:8000/docs`
 | `EMBEDDING_BATCH_SIZE` | `10` | — | Chunks per embedding API call |
 | `CONFIDENCE_THRESHOLD` | `0.35` | — | Minimum score to proceed to generation |
 | `VECTOR_TOP_K` | `20` | — | Candidates from $vectorSearch |
-| `TEXT_TOP_K` | `20` | — | Candidates from $text BM25 |
+| `TEXT_TOP_K` | `20` | — | Candidates from MongoDB `$text` keyword search |
 | `FINAL_TOP_K` | `5` | — | Chunks passed to LLM after reranking |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | — | HuggingFace cross-encoder model |
 | `SECRET_KEY` | — | ✅ prod | JWT secret (change in production) |
@@ -268,7 +268,7 @@ ACID guarantees are required for document versioning and audit trails. MongoDB's
 Naive text extraction (PyPDF2, pdfminer) loses table structure — all rows collapse into flat text. Hi-res strategy uses detectron2 layout detection to extract table HTML and embedded images as separate elements. A question like "what does the Q3 revenue table show?" is only answerable with structured table extraction.
 
 ### Why RRF fusion?
-Vector search excels at semantic similarity but underperforms on exact keywords (product codes, proper nouns). BM25 excels at keywords but misses paraphrase. RRF is score-scale-invariant (uses rank positions, not raw scores) and achieves ~12% recall improvement over pure vector search on keyword-heavy queries (BEIR benchmark).
+Vector search excels at semantic similarity but underperforms on exact keywords (product codes, proper nouns). MongoDB `$text` search improves exact keyword recall but misses paraphrase. RRF is score-scale-invariant because it uses rank positions rather than raw vector/text scores. The design is benchmark-motivated by hybrid retrieval results that commonly improve keyword-heavy recall over dense-only retrieval.
 
 ### Why cross-encoder reranking?
 Bi-encoder embeddings encode query and document independently — fast for ANN search but miss fine-grained relevance signals. Cross-encoders attend jointly to (query, passage) pairs, producing more accurate relevance scores. We use it to rerank 40 RRF candidates → 5 final chunks. The model runs locally (22M params, CPU-feasible).
@@ -313,7 +313,7 @@ insightdocket/
 │   ├── core/                # Security, sanitiser, rate limiter, metrics
 │   ├── db/                  # MySQL + MongoDB clients and ORM models
 │   ├── ingestion/           # Storage, parser, summariser, embedder, pipeline
-│   ├── retrieval/           # Vector search, BM25, RRF, reranker, confidence
+│   ├── retrieval/           # Vector search, $text search, RRF, reranker, confidence
 │   ├── generation/          # Prompts, generator, hallucination filter
 │   └── observability/       # LangSmith tracer, audit logger
 ├── tests/                   # Pytest suite (≥70% coverage)
